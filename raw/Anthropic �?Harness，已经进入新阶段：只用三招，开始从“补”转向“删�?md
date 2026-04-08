@@ -1,0 +1,436 @@
+---
+title: "Anthropic 的 Harness，已经进入新阶段：只用三招，开始从“补”转向“删”"
+source: "https://mp.weixin.qq.com/s/k8eoFVMRcCPXEQMSy9Dyqg"
+author:
+  - "[[若飞]]"
+published:
+created: 2026-04-08
+description: "这可能才是 Agent 时代更像工程，而不是更像魔法的地方。"
+tags:
+  - "clippings"
+---
+原创 若飞 *2026年4月7日 22:36*
+
+---
+
+最近这条 Harness 线，从 3 月底一直在梳理。昨天还有粉丝说，这个话题都快成老生常谈了。
+
+最早是翻 Codex 仓库，写《 [Codex 为什么能又快又稳](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408765&idx=1&sn=62bc37d9672262334fa3aa5d7c77d8f4&scene=21#wechat_redirect) 》，看 OpenAI 怎么把工程经验沉淀到仓库里。后来读 [Anthropic 那篇长任务文章](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408877&idx=1&sn=d27eb9e99ed526e342df775f0291cb2e&scene=21#wechat_redirect) ，注意力放在 `planner / generator / evaluator` 那套分工，以及 `sprint contract` 这类把完成标准写进系统的做法。再往后顺着 Claude Code 的 `query.ts` 和 `SessionMemory` 一路追， [压缩、记忆、续写怎么做成 runtime](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408950&idx=1&sn=8c14e4b7726dd478644e0a8e1acfbad4&scene=21#wechat_redirect) ，也慢慢清楚了。到前两天整理《 [Coding Agent 的 6 个关键模块](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408973&idx=1&sn=e147f34daa2d9e3ea431d985b08486e5&scene=21#wechat_redirect) 》，这些散着的问题，才重新收回到一张总图里。
+
+这么多篇下来，其实都在回答同一个方向的问题： **模型已经这么强了，模型外面那层系统还缺什么。**
+
+答案一直是"继续补"。
+
+但读到 Anthropic 前几天的 *Harnessing Claude's Intelligence* ，我的思路又开阔了一些。
+
+不是变了方向，是补上了另一半。
+
+新文章不再主要讲怎么往上加东西。它开始问一个之前很少被正面回答的问题：
+
+**What can I stop doing?**
+
+前一篇长任务文章讲的是：当模型自己还扛不住时，系统该补什么。 `planner` 、 `evaluator` 、 `context reset` 、 `sprint contract` ，全是在替模型兜底。
+
+后面这篇新文讲的是：当模型已经跨过某些门槛后，系统终于可以少做什么。编排、上下文管理、记忆选择，哪些可以慢慢还给模型。
+
+如果只看新文本身，它像是在讲三个关键模式。
+
+但两篇连着读，Anthropic 其实在讲一个更大的工程判断：
+
+**Harness 不是只管往上加的。该补的时候要补，该删的时候也得删。**
+
+我自己最在意的，也正是这里。
+
+它不是又给了三个新名词，而是开始认真回答另一件事：
+
+**Harness 里哪些东西，今天终于可以拆掉了。**
+
+**这,可能也意味着: Anthropic 的 Harness，已经进入新阶段 **。****
+
+  
+
+## 太长不看版
+
+- • 把 Anthropic 前后两篇 Harness 文章对着看，会发现一条很清楚的变化：先补短板，再删 dead weight。
+- • 新文真正的主问题只有一句话： `What can I stop doing?`
+- • 三个关键模式落到工程里：先用 Claude 已经会的东西、把局部控制权还给模型、把真正承重的边界留在 Harness。
+- • 这条线和我们从《 [Codex 为什么能又快又稳](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408832&idx=1&sn=ef00408738c853ea2e94be58c0612e51&scene=21#wechat_redirect) 》到《 [Coding Agent 的 6 个关键模块](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408973&idx=1&sn=e147f34daa2d9e3ea431d985b08486e5&scene=21#wechat_redirect) 》这批文章能接上：先看怎么补，再看怎么把治理写进 runtime，到这里开始看哪些终于可以少做一点了。
+- • 真正该慢慢还回去的，至少有三类控制权：编排权、上下文管理权、记忆选择权。
+- • 真正不该轻易还回去的，也至少有三类边界：缓存与成本边界、安全与确认边界、可观测性边界。
+- • 背后真正值钱的不是那三个模式，而是一个工程节奏：每次模型升级后，做一次 dead weight inventory。
+
+---
+
+## 前后放在一起读，会更清楚
+
+前一篇《Harness design for long-running application development》，Anthropic 主要在解决的是两个非常具体的问题：
+
+- • 长任务为什么会越跑越偏
+- • 模型为什么总是对自己的结果过于宽容
+
+所以那篇长任务文章里的关键词，是 `planner / generator / evaluator` 、 `context reset` 、 `sprint contract` 、 `structured handoff` 。
+
+说得直接一点，那篇更像是在回答： **当模型自己还扛不住时，系统该补什么。**
+
+到了《Harnessing Claude’s Intelligence》，重心就明显往另一边挪了。
+
+新文不再主要讨论怎么把框架搭得更厚，而是开始问：
+
+- • 编排是不是还必须由 Harness 接管
+- • 上下文是不是还需要大段预加载
+- • 记忆是不是一定要先做成模型外的检索基础设施
+
+换句话说，它开始回答的是： **当模型已经跨过某些门槛时，系统终于可以少做什么。**
+
+把这层差别换成一张竖着看的图，会更顺一些：
+
+![图片](data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8'%3F%3E%3Csvg width='1px' height='1px' viewBox='0 0 1 1' version='1.1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'%3E%3Ctitle%3E%3C/title%3E%3Cg stroke='none' stroke-width='1' fill='none' fill-rule='evenodd' fill-opacity='0'%3E%3Cg transform='translate(-249.000000, -126.000000)' fill='%23FFFFFF'%3E%3Crect x='249' y='126' width='1' height='1'%3E%3C/rect%3E%3C/g%3E%3C/g%3E%3C/svg%3E)
+
+所以这里并不是观点反转。
+
+更像是前后两篇连起来，Anthropic 才把自己的意思讲完整了：
+
+**该补的时候要补。该删的时候也得删。**
+
+Anthropic 在原文里举了一个很典型的例子。
+
+他们之前做长任务 Agent 时，Sonnet 4.5 会在感知到上下文快到上限时提前收工，像是出现了一种 `context anxiety` 。于是团队加了 context reset 机制，主动清空上下文、重启会话，避免模型草草交卷。
+
+到了 Opus 4.5，这个行为消失了。
+
+于是原来那套用来补偿模型短板的 reset 机制，就不再是护栏，而开始变成 dead weight。
+
+这句话很重要。
+
+**很多 Harness 组件之所以存在，不是因为它们永远正确，而是因为它们曾经刚好填上了某一代模型的能力缺口。**
+
+一旦缺口消失，组件就该重新评估。
+
+我觉得这里真正值钱的，也不是那三个模式本身，而是它背后的工程节奏：
+
+1. 1\. 先承认模型有边界。
+2. 2\. 用 Harness 把边界外移成系统能力。
+3. 3\. 每次模型升级后，重新检查哪些控制逻辑还在承重。
+4. 4\. 能删的就删，不要让旧补丁反过来卡住新模型。
+
+---
+
+## 模式一：先用 Claude 已经会的东西
+
+新文开头还是从 `bash` 和 `text editor` 讲起，这点和前两天写《模 [型差距在缩小，Harness 差距在放大](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408973&idx=1&sn=e147f34daa2d9e3ea431d985b08486e5&scene=21#wechat_redirect) 》时反复碰到的判断很像：
+
+**好的 Agent 系统，不是先发明一堆花哨组件，而是先把模型已经熟悉的能力接进真实工作流。**
+
+这次原文把这件事讲得更彻底了：
+
+**不要太早替模型定义“正确工具形态”，先看看它已经擅长使用什么。**
+
+回顾一下这条线：2024 年底 Claude 3.5 Sonnet 只靠 `bash` 和 `text editor` 两个工具就在 SWE-bench Verified 上拿到了 49%（当时的 SOTA），到了 Opus 4.5 同样两个工具做到了 80.9%。Claude Code 也是基于它们构建的。Bash 不是为 Agent 设计的，但它是 Claude 训练数据里大量出现的东西，每一代模型都在变得更会用。
+
+在 Anthropic 的叙述里，很多今天看起来像独立能力的东西，本质上都还是从这两个通用基础工具长出来的：
+
+- • `programmatic tool calling` （编程式工具调用）
+- • `Skills` （技能系统）
+- • `memory` （记忆工具）
+
+它们并不是和基础工具平行的一层“新发明”，更像是在 `bash + text editor` 上逐步长出来的组合模式。
+
+![图片](data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8'%3F%3E%3Csvg width='1px' height='1px' viewBox='0 0 1 1' version='1.1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'%3E%3Ctitle%3E%3C/title%3E%3Cg stroke='none' stroke-width='1' fill='none' fill-rule='evenodd' fill-opacity='0'%3E%3Cg transform='translate(-249.000000, -126.000000)' fill='%23FFFFFF'%3E%3Crect x='249' y='126' width='1' height='1'%3E%3C/rect%3E%3C/g%3E%3C/g%3E%3C/svg%3E)
+
+Claude 三个关键模式配图
+
+这里最值得研究的，不是“以后都别做专用工具”，而是另一句更实用的话：
+
+**如果一个问题可以先用 Claude 已经熟悉的通用工具解决，就别急着把它过早固化成框架逻辑。**
+
+过早专用化的问题在于，你很可能是在替模型做决策。
+
+而模型的能力一旦继续上涨，那些你提前写死的分工、过滤和流程，迟早会过时。
+
+把这层关系压成一个简单判断，会更清楚：
+
+| 形态 | 更适合解决什么 | 什么时候优先用 |
+| --- | --- | --- |
+| 通用工具，如 `bash` 、文本编辑器 | 开放式探索、局部编排、临时组合 | 问题形态还在变化，或者模型已经很会做 |
+| 声明式专用工具 | 安全门禁、结构化参数、用户交互、审计回放 | 动作高风险、难回滚、必须可追踪 |
+
+也就是说，Anthropic 并不是在说“专用工具不重要”。
+
+它是在强调一个顺序：
+
+**先把通用能力吃透，再决定哪些地方真的值得升格成系统边界。**
+
+---
+
+## 模式二：把三类控制权，慢慢还给模型
+
+文章最有信息量的部分，在第二条原则： `Ask what can I stop doing?`。
+
+把它翻成更工程的话，其实就是一句：
+
+**Harness 里很多默认动作，今天已经值得重新检查它们是不是还该由框架接管。**
+
+具体往下看，刚好是三类控制权。
+
+![图片](data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8'%3F%3E%3Csvg width='1px' height='1px' viewBox='0 0 1 1' version='1.1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'%3E%3Ctitle%3E%3C/title%3E%3Cg stroke='none' stroke-width='1' fill='none' fill-rule='evenodd' fill-opacity='0'%3E%3Cg transform='translate(-249.000000, -126.000000)' fill='%23FFFFFF'%3E%3Crect x='249' y='126' width='1' height='1'%3E%3C/rect%3E%3C/g%3E%3C/g%3E%3C/svg%3E)
+
+### 1\. 编排权，不必全攥在 Harness 手里
+
+很多系统默认认为：每次工具调用的结果，都要回到模型上下文里，再由模型决定下一步。
+
+这个假设的问题是，它又慢又贵，而且很多时候没必要。
+
+如果 Claude 只是想从一张大表里看某一列，你却把整张表都塞回上下文，那你实际上是在为模型根本不关心的那部分数据付 token 成本。
+
+Anthropic 的解法不是继续在工具层硬编码过滤器，而是直接把一部分编排权还给 Claude：
+
+- • 给它 `bash` 或 REPL 这类代码执行能力
+- • 让它自己写代码去串联工具调用
+- • 中间结果在代码里处理
+- • 只有真正需要的输出再回到上下文
+
+这背后是一个很关键的判断：
+
+**很多所谓“工具编排”，本质上不是 Harness 必须接管的系统职责，而是 Claude 自己就更适合做的局部决策。**
+
+原文给的数字也很直接。
+
+在 BrowseComp 上，让 Opus 4.6 具备自己过滤工具输出的能力后，准确率从 **45.3%** 提升到了 **61.6%** 。
+
+这不是一个小修小补级别的增益。
+
+它说明，一部分编排权从 Harness 转回模型之后，系统整体反而更强。
+
+这里正好和前面写《 [Claude Code 长任务为什么不容易跑偏](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408950&idx=1&sn=8c14e4b7726dd478644e0a8e1acfbad4&scene=21#wechat_redirect) 》时的观察接上了。当时更关注"怎么防模型跑偏"，这次 Anthropic 补的是另一面： **不是所有中间环节都该回到 prompt。**
+
+### 2\. 上下文管理权，也不该全靠预加载
+
+另一个常见默认动作是：把大量任务指令提前写进 system prompt。
+
+问题也很明显。
+
+任务越多，预加载越重。预加载越重，注意力预算越紧。而且很多说明在当前任务里根本用不到。
+
+Anthropic 给的答案还是我们已经很熟的那条线： `Skills` 。
+
+不是把所有细节都提前塞给模型，而是只预加载简短描述，让 Claude 自己按需展开。
+
+原文把这个机制明确叫成了 `progressive disclosure` 。
+
+先给目录。  
+需要时再读全文。
+
+同一组思路下， `context editing` 和 `subagents` 也都能放进来理解：
+
+- • `context editing` 负责删掉过时上下文，比如旧的工具返回结果、早期的 thinking blocks
+- • `subagents` 负责在必要时开一个更干净的上下文窗口，把子任务隔离出去
+
+原文提到，Opus 4.6 使用 subagents 后，在 BrowseComp 上比最佳单 Agent 结果又提升了 **2.8%** 。
+
+所以现在越来越清楚了。
+
+**上下文管理不等于“塞得更满”，而是让模型逐步学会自己决定该看什么、该丢什么、什么时候该分叉。**
+
+这点其实和前两天写《 [Karpathy 的 LLM Wiki，到底比传统知识库多了哪一层](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408964&idx=1&sn=e9a60e04ef11b2eea61114d92401661a&scene=21#wechat_redirect) 》时的判断能接上。当时讲的是"先编译，再查询"；Anthropic 这次讲的是"先给目录，再按需展开"。
+
+两者本质上都在减少无意义的预加载。
+
+### 3\. 记忆选择权，也在从外部基础设施回到模型判断
+
+这部分和前面写《 [Claude Code 长任务为什么不容易跑偏](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408950&idx=1&sn=8c14e4b7726dd478644e0a8e1acfbad4&scene=21#wechat_redirect) 》时那条线，正好接上。
+
+传统做法常把“记忆”理解成模型外的一套检索系统。后面那篇新文的重点则是：先给模型足够简单的持久化手段，让它自己学会选什么该记。
+
+原文举了两条路径：
+
+- • `compaction`
+- • `memory folder`
+
+`compaction` 让 Claude 总结过去的上下文，保持长任务连续性。更关键的是，同样一套机制，在不同模型上表现完全不同：
+
+- • Sonnet 4.5 在 BrowseComp 上基本卡在 **43%**
+- • Opus 4.5 到了 **68%**
+- • Opus 4.6 到了 **84%**
+
+这组数字很说明问题。
+
+**很多时候，不是你的记忆机制本身不工作，而是模型终于更会决定“什么值得留下来了”。**
+
+`memory folder` 也是同一个意思。它不是替模型做记忆选择，而是给模型一个可以写、可以读、可以回头整理的地方。原文给了一组数字：光是给 Sonnet 4.5 一个 memory folder，BrowseComp-Plus 上的准确率就从 **60.4%** 提升到了 **67.2%** 。
+
+文章里那个宝可梦例子就更典型。
+
+Sonnet 3.5 更像是在写流水账，NPC 说了什么都记。  
+Opus 4.6 则开始提炼战术笔记、失败经验和目录结构。
+
+这不是“存得更多”，而是“记得更像回事”。
+
+---
+
+## 模式三：能放权，不等于没边界
+
+如果只读到这里，很容易得出一个过度乐观的结论：那是不是 Harness 以后只要不断做减法就行了？
+
+不是。
+
+Anthropic 第三条原则恰好就是在收这件事：
+
+**该退让的地方要退让，但该明确接管的边界，还是要明确接管。**
+
+而且这里点得很具体，几乎已经是一张决策表了：
+
+| 边界类型 | 为什么必须留在 Harness | 典型做法 |
+| --- | --- | --- |
+| 成本边界 | Messages API 无状态，缓存命中率直接影响账单与延迟 | 静态前置、动态后置、断点更新、会话内少切模型 |
+| 安全边界 | 高风险动作不能只靠模型自觉 | 用户确认、staleness check、权限门禁 |
+| UX 边界 | 有些动作需要以产品形态呈现给用户 | 弹窗、选项框、阻塞等待反馈 |
+| 可观测性边界 | 生产系统需要可记录、可追踪、可回放 | 类型化工具、结构化参数、日志与审计 |
+
+### 一类边界，是成本边界
+
+Messages API 是无状态的，每一轮都要重新打包历史。缓存命中率直接关系到成本和延迟。
+
+原文提醒了几条很实用的原则：
+
+- • 静态内容放前面，动态内容放后面
+- • 更新尽量追加消息，不要改 prompt 本体
+- • 同一会话里别频繁切模型
+- • 工具列表改动会影响缓存前缀
+- • 多轮应用要持续更新 breakpoint
+
+尤其是那句“缓存 token 成本只有基础输入的 10%”，其实已经足够说明： **缓存命中率不是小优化，而是 Harness 该主动负责的预算纪律。**
+
+### 一类边界，是安全和 UX 边界
+
+Anthropic 这里给了一个我很认同的判断标准： `reversibility` ，也就是可逆性。
+
+越难回滚的动作，越值得做成独立工具，而不是让它躲在一串 `bash` 命令里。
+
+比如：
+
+- • 外部 API 调用，可能需要用户确认
+- • 文件写入，最好带 staleness check，防止覆盖旧版本
+- • 要展示给用户的动作，最好做成能渲染成弹窗或选项框的专用工具
+
+这件事在 Claude Code 上也能看得很清楚。
+
+`bash` 很强，但它给 Harness 的只有一串命令字符串。删一个文件和调一个外部 API，Harness 看到的形状没区别，但风险完全不同。  
+而像 `edit` 这种声明式工具，才能让系统真正拿到结构化参数，做审计、回放、拦截和权限控制。
+
+原文还提到了一个有意思的做法：Claude Code 的 auto-mode 用了"第二个 Claude"来审查 bash 命令是否安全。这种"用模型审查模型"的路子，一定程度上减少了对专用工具的依赖——但它只适用于用户对大方向已经足够信任的场景。对于那些一步走错就很难回头的动作，老老实实做成声明式工具仍然更稳。
+
+### 一类边界，是可观测性边界
+
+只要动作是类型化工具，Harness 就能记录参数、追踪链路、做回放。
+
+这件事在 demo 阶段常被低估，但系统一旦开始进入真实生产环境，它会越来越重要。
+
+**不是因为“工具长得更高级”，而是因为你终于有了可审计的动作形状。**
+
+所以 Anthropic 这里的立场其实很克制：
+
+它既没有说“都交给模型”，也没有说“继续堆更多壳”。
+
+它在做的是另一种划分：
+
+- • 编排、上下文、记忆里，哪些局部决策可以慢慢交还给模型
+- • 成本、安全、UX、可观测性里，哪些边界仍然必须留在 Harness
+- • 甚至"是否要做成专用工具"这个决策本身，也得跟着模型能力走，持续重新评估
+
+---
+
+## 如果你也在做 Agent，有 5 个地方也许值得深入
+
+读到这里，真正有价值的可能不是记住那三个模式，而是回头检查自己的系统。
+
+如果要回头做一次 Harness 体检，我自己大概会先从这 5 件事看起：
+
+1. 1\. 现在有哪些流程，其实只是为了补偿旧模型的短板？
+2. 2\. 哪些工具过滤、任务编排、上下文拼装，已经在替模型做它本可以自己做的决定？
+3. 3\. 哪些专用工具是真正承重的，哪些只是历史上“先做出来了”但今天收益已经不明显？
+4. 4\. 哪些动作涉及安全、确认、审计、回滚，必须继续留在 Harness 的控制面？
+5. 5\. 每次模型升级后，你有没有系统地做过一次“dead weight inventory”？
+
+很多团队的问题，不是 Harness 不够多。
+
+恰恰相反，是做出来以后就再也没删过。
+
+而一个从来不删的 Harness，最后很容易变成两头不讨好：
+
+- • 对模型来说太重
+- • 对系统来说太复杂
+- • 对成本来说太贵
+- • 对团队来说太难维护
+
+---
+
+## 写在最后
+
+从 3 月底的《 [Codex 为什么能又快又稳](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408832&idx=1&sn=ef00408738c853ea2e94be58c0612e51&scene=21#wechat_redirect) 》到《 [如何让单个 Agent 做长任务不失真》](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408877&idx=1&sn=d27eb9e99ed526e342df775f0291cb2e&scene=21#wechat_redirect) ，再到《 [Claude Code 源码架构解析](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408943&idx=1&sn=99626f852eba63c7a5134c976b9f031d&scene=21#wechat_redirect) 》《 [长任务为什么不容易跑偏](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408950&idx=1&sn=8c14e4b7726dd478644e0a8e1acfbad4&scene=21#wechat_redirect) 》《 [Coding Agent 的 6 个关键模块](https://mp.weixin.qq.com/s?__biz=MzAwNjQwNzU2NQ==&mid=2650408973&idx=1&sn=e147f34daa2d9e3ea431d985b08486e5&scene=21#wechat_redirect) 》，这条线上的核心判断一直是：很多失真，不能只指望模型自己临场克服，得把它们外移成系统机制。
+
+读到这里，新文等于把后半句也补上了：
+
+**系统机制不是越多越好。**
+
+真正成熟的 Harness，不只是会补短板，还得会在短板消失之后，主动删掉曾经的补丁。
+
+如果把最近这几篇收成一句话，我自己的判断会是：
+
+**Harness 正在进入第二阶段。**
+
+第一阶段，是拼命补。  
+第二阶段，是持续删。  
+补的是能力缺口，删的是历史包袱。
+
+新文最值钱的地方，不是又给了三个新名词，而是把这个删减逻辑明确说了出来。
+
+前面那篇长任务文章的结尾有句话我一直记着：Harness 的可能性空间不会随模型进步而缩小，它只是在不断移动。
+
+后面这篇新文，等于给了那句话一个更实操的版本：
+
+Sprint 被砍了。硬编码过滤器不需要了。预加载的长指令换成了按需读取的 Skills。模型能自己编排、自己管上下文、自己管记忆了。
+
+但与此同时，新的边界问题也冒出来了——memory folder 怎么设计、安全边界画在哪、缓存打断了成本翻倍怎么办。
+
+所以到最后，我还是想把全文收在这句上：
+
+**Build to delete。**
+
+先搭出来。  
+再持续验证。  
+最后敢于拆掉。
+
+这可能才是 Agent 时代更像工程，而不是更像魔法的地方。
+
+---
+
+## 原文
+
+- • https://claude.com/blog/harnessing-claudes-intelligence（2026-04-02）
+- • https://www.anthropic.com/engineering/harness-design-long-running-apps（2026-03-24）
+
+如喜欢本文，请点击右上角，把文章分享到朋友圈
+
+如有想了解学习的技术点，请留言给若飞安排分享
+
+**因公众号更改推送规则，请点“在看”并加“星标”第一时间获取精彩技术分享**
+
+**·END·**
+
+```
+相关阅读：刚刚，Claude Code“代码泄露”背后：如何重新看 Agent Harness大家都在讲 Harness，但它到底该怎么理解模型越来越强，为什么大家却开始重写 Harness如何让单个 Agent 做长任务不失真：Anthropic 给出了一套更工程化的答案Claude Code高手的 8 个 Claude Code 实战习惯别从 README 开始：一个架构师会怎样翻 Codex 仓库Spec 不是代码的替代品，它是 AI Coding 的上下文管理层如何让 Agents 自己设计、升级 AgentsOpenAI怎么把开源项目维护做成工作流：Skills、AGENTS.md 和 CI 的一套组合拳Claude Skills 入门：把“会用 AI”变成“可复制的工程能力”一套可复制的 Claude Code 配置方案：CLAUDE.md、Rules、Commands、HooksClaude Code 最佳实践：把上下文变成生产力（团队可落地版）把 AI 当成新同事：Agent Coding 的上下文与验证体系一周写百万行的背后：Cursor长时间运行 Agent 的工程方法论我真不敢相信，AI 先加速的是工程师。扒一扒 Claude Cowork 系统提示词：Anthropic 如何打造数字同事Cowork 安全架构深度解析：从 Claude Code 到 Cowork，Anthropic 如何把“可控”做成产品Anthropic官方万字长文：AI Agent评估的系统化方法论银弹还是枷锁？Claude Agent SDK 的架构真相Claude Code创始人亲授13条使用技巧Claude Code 内部工具开源 code-simplifier：终结 AI 屎山代码的终极方案
+```
+
+> 版权申明：内容来源网络，仅供学习研究，版权归原创者所有。如有侵权烦请告知，我们会立即删除并表示歉意。谢谢!
+
+**架构师**
+
+我们都是架构师！
+
+![图片](data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8'%3F%3E%3Csvg width='1px' height='1px' viewBox='0 0 1 1' version='1.1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'%3E%3Ctitle%3E%3C/title%3E%3Cg stroke='none' stroke-width='1' fill='none' fill-rule='evenodd' fill-opacity='0'%3E%3Cg transform='translate(-249.000000, -126.000000)' fill='%23FFFFFF'%3E%3Crect x='249' y='126' width='1' height='1'%3E%3C/rect%3E%3C/g%3E%3C/g%3E%3C/svg%3E)
+
+继续滑动看下一个
+
+架构师
+
+向上滑动看下一个
