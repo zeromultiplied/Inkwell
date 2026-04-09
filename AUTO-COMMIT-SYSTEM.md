@@ -11,7 +11,9 @@ This system provides automatic git commits triggered by file changes or task com
 - **Features**:
   - Generates context-aware commit messages
   - Special handling for wiki files (uses `[[page-name]]` format)
-  - Pushes to remote repository after commit
+  - **Automatic push**: Automatically pushes to remote repository after commit
+  - **Error handling**: Graceful failure handling for network issues
+  - **Push status reporting**: Clear success/failure messages
   - Dry-run mode for testing: `./.git/hooks/post-change --dry-run`
 
 ### 2. Claude Configuration (`.claude/settings.json`)
@@ -52,8 +54,29 @@ git add test-file.txt
 - **No interference**: Manual git operations still work normally
 - **Conflict detection**: Skips auto-commit if conflicts exist
 
-## Integration
-Works seamlessly with:
+## Push to Remote
+
+The system automatically pushes to the remote repository (`origin/master`) after each successful commit:
+
+- **Automatic push**: No manual `git push` required
+- **Error handling**: If push fails, the commit remains local and user is notified
+- **Status reporting**: Clear success (✓) or failure (⚠️) indicators
+- **Recovery**: Manual `git push` can be used if automatic push fails
+
+## Testing the System
+
+```bash
+# Test with dry-run first
+echo "test" > test-file.txt
+git add test-file.txt
+.git/hooks/post-change --dry-run
+
+# Real test (will commit AND push)
+.git/hooks/post-change
+
+# Cleanup
+rm test-file.txt
+```
 - `claude build` - knowledge ingestion
 - `claude sync` - navigation updates
 - Manual editing operations
