@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "afterEdit": {
+      "command": ".git/hooks/post-change",
+      "description": "Auto-commit changes after file editing"
+    },
+    "afterTaskComplete": {
+      "command": ".git/hooks/post-change",
+      "description": "Auto-commit after task completion"
+    }
+  }
+}
